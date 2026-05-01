@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Web-based Dynamic Pathfinding Agent (Wumpus World)</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --safe: #22c55e;
+      --unknown: #6b7280;
+      --hazard: #ef4444;
+      --agent: #38bdf8;
+      --border: #334155;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, #0f172a, #020617);
+      color: var(--text);
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    p { color: var(--muted); }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1.4fr 0.8fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .card {
+      background: rgba(17, 24, 39, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.25);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+      align-items: center;
+    }
+
+    label {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      border-radius: 10px;
+    }
+
+    input {
+      width: 70px;
+      background: transparent;
+      color: var(--text);
+      border: 0;
+      outline: none;
+      font-size: 16px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+      color: white;
+      background: #2563eb;
+    }
+
+    button.secondary { background: #475569; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .grid {
+      display: grid;
+      gap: 6px;
+      background: #0b1220;
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+    }
+
+    .cell {
+      aspect-ratio: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      font-size: 12px;
+      font-weight: 700;
+      user-select: none;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cell .coord {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      font-size: 10px;
+      opacity: 0.7;
+      font-weight: 600;
+    }
+
+    .safe { background: rgba(34, 197, 94, 0.95); color: #052e16; }
+    .unknown { background: rgba(107, 114, 128, 0.9); color: #f9fafb; }
+    .hazard { background: rgba(239, 68, 68, 0.95); color: #fff; }
+    .agent { outline: 3px solid var(--agent); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.25); }
+
+    .legend { display: grid; gap: 8px; margin-top: 12px; color: var(--muted); }
+    .legend-row { display: flex; gap: 8px; align-items: center; }
+    .swatch { width: 16px; height: 16px; border-radius: 4px; }
+
+    .metrics {
+      display: grid;
+      gap: 12px;
+    }
+
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .metric h3 { margin: 0 0 6px; font-size: 14px; color: #cbd5e1; }
+    .metric div { font-size: 16px; font-weight: 700; }
+    .message { line-height: 1.5; }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Web-based Dynamic Pathfinding Agent</h1>
+    <p>Simple Wumpus World demo using Flask and AIMA propositional logic.</p>
+
+    <div class="layout">
+      <div class="card">
+        <div class="controls">
+          <label>Rows <input id="rows" type="number" min="2" value="4"></label>
+          <label>Cols <input id="cols" type="number" min="2" value="4"></label>
+          <button id="newGameBtn">Start / Reset</button>
+          <button id="stepBtn" class="secondary" disabled>Step</button>
+          <button id="autoBtn" class="secondary" disabled>Auto Run</button>
+        </div>
+
+        <div id="grid" class="grid"></div>
+
+        <div class="legend">
+          <div class="legend-row"><span class="swatch" style="background: var(--safe);"></span> Safe / Visited</div>
+          <div class="legend-row"><span class="swatch" style="background: var(--unknown);"></span> Unknown / Unvisited</div>
+          <div class="legend-row"><span class="swatch" style="background: var(--hazard);"></span> Pit / Wumpus</div>
+        </div>
+      </div>
+
+      <div class="card metrics">
+        <div class="metric">
+          <h3>Inference Steps</h3>
+          <div id="steps">0</div>
+        </div>
+
+        <div class="metric">
+          <h3>Current Location</h3>
+          <div id="location">[1, 1]</div>
+        </div>
+
+        <div class="metric">
+          <h3>Active Percepts</h3>
+          <div id="percepts">Breeze: false, Stench: false</div>
+        </div>
+
+        <div class="metric">
+          <h3>Status</h3>
+          <div id="status" class="message">Start a new game to begin.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>

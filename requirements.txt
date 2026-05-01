@@ -2,3 +2,4 @@ Flask==3.0.3
 networkx==3.2.1
 numpy
 ipythonblocks
+sortedcontainers

@@ -6,10 +6,22 @@ from flask import Flask, jsonify, render_template, request
 # AIMA / aima-python logic tools.
 # The code tries the packaged import first, then falls back to a local logic.py
 # if the original aima-python repository is cloned next to this file.
+import sys
+import os
+
 try:
 	from aima3.logic import PropKB, expr, pl_resolution
-except ImportError:  # pragma: no cover
-	from logic import PropKB, expr, pl_resolution
+	print("[DEBUG] Successfully imported from aima3.logic")
+except ImportError as e:
+	print(f"[DEBUG] Failed to import aima3.logic: {e}")
+	try:
+		# Try local import if aima-python is cloned locally
+		sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+		from logic import PropKB, expr, pl_resolution
+		print("[DEBUG] Successfully imported from local logic module")
+	except ImportError as e2:
+		print(f"[ERROR] Failed to import logic from both aima3 and local: {e}, {e2}")
+		raise
 
 
 app = Flask(__name__)
@@ -117,8 +129,14 @@ def cell_is_safe(kb: PropKB, r: int, c: int, state: Dict[str, object]) -> bool:
 	(~P_r_c & ~W_r_c)
 	"""
 	state["inference_steps"] = int(state["inference_steps"]) + 1
-	query = expr(f"(~P_{r}_{c} & ~W_{r}_{c})")
-	return pl_resolution(kb, query)
+	try:
+		query = expr(f"(~P_{r}_{c} & ~W_{r}_{c})")
+		result = pl_resolution(kb, query)
+		print(f"[DEBUG] Query pl_resolution for cell [{r},{c}]: {result}")
+		return result
+	except Exception as e:
+		print(f"[ERROR] pl_resolution failed for cell [{r},{c}]: {e}")
+		return False
 
 
 def mark_known_safe(state: Dict[str, object], cell: Cell) -> None:
@@ -145,7 +163,8 @@ def agent_step() -> Dict[str, object]:
 
 	If no adjacent safe cell is provable, the agent stops.
 	"""
-	if not GAME:
+	if not GAME or "rows" not in GAME:
+		print("[ERROR] GAME state not found or not initialized. GAME keys:", list(GAME.keys()))
 		return {"ok": False, "message": "No active game. Start a new game first."}
 
 	if GAME.get("game_over"):
@@ -166,6 +185,7 @@ def agent_step() -> Dict[str, object]:
 	# 2) Ask the KB which adjacent cells are provably safe.
 	candidates = neighbors(agent_r, agent_c, rows, cols)
 	visited: Set[Cell] = GAME["visited"]  # type: ignore[assignment]
+	print(f"[DEBUG] Adjacent candidates from [{agent_r},{agent_c}]: {candidates}")
 
 	# Prefer a new safe cell, but backtracking to an already safe cell is okay.
 	proven_safe: List[Cell] = []
@@ -174,6 +194,7 @@ def agent_step() -> Dict[str, object]:
 			proven_safe.append((nr, nc))
 			mark_known_safe(GAME, (nr, nc))
 
+	print(f"[DEBUG] Proven safe cells: {proven_safe}")
 	if not proven_safe:
 		GAME["stopped"] = True
 		GAME["message"] = "No adjacent cell can be proven safe, so the agent stops here."

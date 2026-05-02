@@ -100,6 +100,8 @@ async function startGame() {
     cols: Number(colsEl.value),
   };
 
+  console.log('[DEBUG] Starting new game with payload:', payload);
+
   const res = await fetch('/api/new_game', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -107,20 +109,30 @@ async function startGame() {
   });
 
   const state = await res.json();
+  console.log('[DEBUG] /api/new_game response:', state);
   render(state);
   
   // Only enable buttons if the game started successfully
   if (state && state.ok) {
+    console.log('[DEBUG] Game started successfully');
     stepBtn.disabled = false;
     autoBtn.disabled = false;
+  } else {
+    console.error('[ERROR] Game failed to start:', state?.message || 'Unknown error');
   }
 }
 
 async function stepGame() {
-  if (!currentState) return;
+  if (!currentState) {
+    console.error('[ERROR] No current state available');
+    return;
+  }
 
+  console.log('[DEBUG] Stepping agent...');
   const res = await fetch('/api/step', { method: 'POST' });
-  render(await res.json());
+  const state = await res.json();
+  console.log('[DEBUG] /api/step response:', state);
+  render(state);
 }
 
 function stopAuto() {
@@ -137,18 +149,23 @@ async function toggleAuto() {
     return;
   }
 
+  console.log('[DEBUG] Starting auto run...');
   autoBtn.textContent = 'Stop Auto';
   autoTimer = setInterval(async () => {
     if (!currentState || currentState.game_over || currentState.stopped) {
+      console.log('[DEBUG] Auto run stopping. currentState:', currentState);
       stopAuto();
       return;
     }
 
+    console.log('[DEBUG] Auto step iteration...');
     const res = await fetch('/api/step', { method: 'POST' });
     const state = await res.json();
+    console.log('[DEBUG] Auto step response:', state);
     render(state);
 
     if (state.game_over || state.stopped) {
+      console.log('[DEBUG] Agent stopped or game over. Stopping auto run.');
       stopAuto();
     }
   }, 700);

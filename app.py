@@ -195,12 +195,14 @@ def build_kb(rows: int, cols: int) -> List[str]:
 
 			# If a cell has no neighbors, then no breeze / stench is possible.
 			if pit_terms:
-				sentences.append(f"B_{r}_{c} <=> ({pit_terms})")
+				sentences.append(f"B_{r}_{c} ==> ({pit_terms})")
+				sentences.append(f"({pit_terms}) ==> B_{r}_{c}")
 			else:
 				sentences.append(f"~B_{r}_{c}")
 
 			if stench_terms:
-				sentences.append(f"S_{r}_{c} <=> ({stench_terms})")
+				sentences.append(f"S_{r}_{c} ==> ({stench_terms})")
+				sentences.append(f"({stench_terms}) ==> S_{r}_{c}")
 			else:
 				sentences.append(f"~S_{r}_{c}")
 
@@ -252,11 +254,12 @@ def cell_is_safe(kb: PropKB, r: int, c: int, state: Dict[str, object]) -> bool:
 	We prove the conjunction:
 	(~P_r_c & ~W_r_c)
 	"""
-	state["inference_steps"] = int(state["inference_steps"]) + 1
+	state["inference_steps"] = int(state["inference_steps"]) + 2
 	try:
-		query = expr(f"(~P_{r}_{c} & ~W_{r}_{c})")
-		result = pl_resolution(kb, query)
-		print(f"[DEBUG] Query pl_resolution for cell [{r},{c}]: {result}")
+		safe_from_pit = pl_resolution(kb, expr(f"~P_{r}_{c}"))
+		safe_from_wumpus = pl_resolution(kb, expr(f"~W_{r}_{c}"))
+		result = safe_from_pit and safe_from_wumpus
+		print(f"[DEBUG] Query pl_resolution for cell [{r},{c}]: pit={safe_from_pit}, wumpus={safe_from_wumpus}")
 		return result
 	except Exception as e:
 		print(f"[ERROR] pl_resolution failed for cell [{r},{c}]: {e}")

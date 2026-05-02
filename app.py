@@ -2,20 +2,18 @@ import random
 from typing import Dict, List, Optional, Set, Tuple
 
 from flask import Flask, jsonify, render_template, request
-
-# AIMA / aima-python logic tools.
-# The code tries the packaged import first, then falls back to a local logic.py
-# if the original aima-python repository is cloned next to this file.
 import sys
 import os
+import json
+from pathlib import Path
 
+# AIMA / aima-python logic tools. Try packaged import first, then local fallback.
 try:
 	from aima3.logic import PropKB, expr, pl_resolution
 	print("[DEBUG] Successfully imported from aima3.logic")
 except ImportError as e:
 	print(f"[DEBUG] Failed to import aima3.logic: {e}")
 	try:
-		# Try local import if aima-python is cloned locally
 		sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 		from logic import PropKB, expr, pl_resolution
 		print("[DEBUG] Successfully imported from local logic module")
@@ -32,6 +30,102 @@ Cell = Tuple[int, int]
 
 # One simple game state for the whole app.
 GAME: Dict[str, object] = {}
+STATE_FILE = Path(__file__).parent / "game_state.json"
+
+
+def save_game():
+	"""Serialize GAME to disk (JSON-friendly)."""
+	if not GAME:
+		return
+
+	data = dict(GAME)
+
+	# Convert non-serializable types
+	if "visited" in data:
+		data["visited"] = list(map(list, list(data["visited"])))
+	if "safe_cells" in data:
+		data["safe_cells"] = list(map(list, list(data["safe_cells"])))
+	if "world" in data:
+		world = dict(data["world"])
+		world["pits"] = list(map(list, list(world.get("pits", []))))
+		world["wumpus"] = list(world["wumpus"]) if world.get("wumpus") else None
+		data["world"] = world
+
+	# KB sentences list should already be strings
+	try:
+		with open(STATE_FILE, "w") as f:
+			json.dump(data, f)
+		print(f"[DEBUG] Game state saved to {STATE_FILE}")
+	except Exception as e:
+		print(f"[ERROR] Failed to save game state: {e}")
+
+
+def load_game():
+	"""Load GAME from disk back into memory, converting types."""
+	if not STATE_FILE.exists():
+		return
+	try:
+		with open(STATE_FILE, "r") as f:
+			data = json.load(f)
+	except Exception as e:
+		print(f"[ERROR] Failed to load game state: {e}")
+		return
+
+	GAME.clear()
+	GAME.update(data)
+
+	# Convert lists back to sets/tuples where needed
+	if "visited" in GAME:
+		GAME["visited"] = set(tuple(x) for x in GAME["visited"])
+	if "safe_cells" in GAME:
+		GAME["safe_cells"] = set(tuple(x) for x in GAME["safe_cells"])
+	if "world" in GAME:
+		pits = set(tuple(x) for x in GAME["world"].get("pits", []))
+		GAME["world"]["pits"] = pits
+		GAME["world"]["wumpus"] = tuple(GAME["world"]["wumpus"]) if GAME["world"].get("wumpus") else None
+
+	print(f"[DEBUG] Game state loaded from {STATE_FILE}")
+
+
+def apply_state_dict(data: Dict[str, object]) -> None:
+	"""Load a provided state dict into GAME (used when client supplies state).
+
+	Expects the same structure as make_public_state output, but also accepts
+	internal keys like kb_sentences and inference_steps.
+	"""
+	GAME.clear()
+	# Basic copy
+	GAME.update(data)
+
+	# Convert lists to proper internal types
+	if "visited" in GAME:
+		GAME["visited"] = set(tuple(x) for x in GAME["visited"]) if isinstance(GAME["visited"], list) else set()
+	if "safe_cells" in GAME:
+		GAME["safe_cells"] = set(tuple(x) for x in GAME["safe_cells"]) if isinstance(GAME["safe_cells"], list) else set()
+	if "world" in GAME:
+		w = GAME["world"]
+		if isinstance(w.get("pits"), list):
+			GAME["world"]["pits"] = set(tuple(x) for x in w.get("pits", []))
+		if w.get("wumpus"):
+			GAME["world"]["wumpus"] = tuple(w["wumpus"]) if isinstance(w["wumpus"], list) else w["wumpus"]
+
+	# Ensure kb_sentences list exists
+	if "kb_sentences" not in GAME:
+		GAME["kb_sentences"] = []
+
+	print("[DEBUG] Applied state from client into GAME keys:", list(GAME.keys()))
+
+
+def get_kb_from_game() -> PropKB:
+	"""Build a fresh PropKB from stored KB sentence strings in GAME."""
+	kb = PropKB()
+	sentences = GAME.get("kb_sentences", [])
+	for s in sentences:
+		try:
+			kb.tell(expr(s))
+		except Exception as e:
+			print(f"[ERROR] Failed to tell KB sentence '{s}': {e}")
+	return kb
 
 
 def in_bounds(r: int, c: int, rows: int, cols: int) -> bool:
@@ -66,14 +160,9 @@ def create_world(rows: int, cols: int) -> Dict[str, object]:
 	return {"rows": rows, "cols": cols, "pits": pits, "wumpus": wumpus}
 
 
-def build_kb(rows: int, cols: int) -> PropKB:
-	"""Create the knowledge base and add the local Breeze/Stench rules.
-
-	These rules are the key AIMA sentences:
-	- Bx,y <=> (pit in one of the adjacent cells)
-	- Sx,y <=> (Wumpus in one of the adjacent cells)
-	"""
-	kb = PropKB()
+def build_kb(rows: int, cols: int) -> List[str]:
+	"""Return a list of KB sentence strings (rules linking percepts and hazards)."""
+	sentences: List[str] = []
 
 	for r in range(1, rows + 1):
 		for c in range(1, cols + 1):
@@ -84,16 +173,17 @@ def build_kb(rows: int, cols: int) -> PropKB:
 
 			# If a cell has no neighbors, then no breeze / stench is possible.
 			if pit_terms:
-				kb.tell(expr(f"B_{r}_{c} <=> ({pit_terms})"))
+				sentences.append(f"B_{r}_{c} <=> ({pit_terms})")
 			else:
-				kb.tell(expr(f"~B_{r}_{c}"))
+				sentences.append(f"~B_{r}_{c}")
 
 			if stench_terms:
-				kb.tell(expr(f"S_{r}_{c} <=> ({stench_terms})"))
+				sentences.append(f"S_{r}_{c} <=> ({stench_terms})")
 			else:
-				kb.tell(expr(f"~S_{r}_{c}"))
+				sentences.append(f"~S_{r}_{c}")
 
-	return kb
+	# Return list; caller will store and reconstruct PropKB when needed
+	return sentences
 
 
 def sense(world: Dict[str, object], r: int, c: int) -> Dict[str, bool]:
@@ -111,15 +201,27 @@ def sense(world: Dict[str, object], r: int, c: int) -> Dict[str, bool]:
 
 def tell_percepts(kb: PropKB, r: int, c: int, percepts: Dict[str, bool]) -> None:
 	"""Tell the KB what the agent senses in the current cell."""
-	if percepts["breeze"]:
-		kb.tell(expr(f"B_{r}_{c}"))
-	else:
-		kb.tell(expr(f"~B_{r}_{c}"))
+	# Persist sentences so KB can be reconstructed across requests
+	s_b = f"B_{r}_{c}" if percepts["breeze"] else f"~B_{r}_{c}"
+	s_s = f"S_{r}_{c}" if percepts["stench"] else f"~S_{r}_{c}"
 
-	if percepts["stench"]:
-		kb.tell(expr(f"S_{r}_{c}"))
-	else:
-		kb.tell(expr(f"~S_{r}_{c}"))
+	try:
+		kb.tell(expr(s_b))
+	except Exception as e:
+		print(f"[ERROR] tell_percepts: failed to tell '{s_b}': {e}")
+	try:
+		kb.tell(expr(s_s))
+	except Exception as e:
+		print(f"[ERROR] tell_percepts: failed to tell '{s_s}': {e}")
+
+	if "kb_sentences" not in GAME:
+		GAME["kb_sentences"] = []
+	if s_b not in GAME["kb_sentences"]:
+		GAME["kb_sentences"].append(s_b)
+	if s_s not in GAME["kb_sentences"]:
+		GAME["kb_sentences"].append(s_s)
+
+	save_game()
 
 
 def cell_is_safe(kb: PropKB, r: int, c: int, state: Dict[str, object]) -> bool:
@@ -142,22 +244,7 @@ def cell_is_safe(kb: PropKB, r: int, c: int, state: Dict[str, object]) -> bool:
 def mark_known_safe(state: Dict[str, object], cell: Cell) -> None:
 	safe_cells: Set[Cell] = state["safe_cells"]  # type: ignore[assignment]
 	safe_cells.add(cell)
-
-{
-  "version": 2,
-  "builds": [
-    {
-      "src": "app.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "app.py"
-    }
-  ]
-}
+ 
 def agent_step() -> Dict[str, object]:
 	"""Move the agent to one adjacent cell that AIMA can prove safe.
 
@@ -171,7 +258,7 @@ def agent_step() -> Dict[str, object]:
 		return make_public_state("Game already finished.")
 
 	world = GAME["world"]  # type: ignore[assignment]
-	kb = GAME["kb"]  # type: ignore[assignment]
+	kb = get_kb_from_game()
 	rows = int(GAME["rows"])
 	cols = int(GAME["cols"])
 	agent_r, agent_c = GAME["agent"]  # type: ignore[assignment]
@@ -223,7 +310,7 @@ def agent_step() -> Dict[str, object]:
 
 def initialize_game(rows: int, cols: int) -> Dict[str, object]:
 	world = create_world(rows, cols)
-	kb = build_kb(rows, cols)
+	kb_sentences = build_kb(rows, cols)
 
 	GAME.clear()
 	GAME.update(
@@ -231,7 +318,7 @@ def initialize_game(rows: int, cols: int) -> Dict[str, object]:
 			"rows": rows,
 			"cols": cols,
 			"world": world,
-			"kb": kb,
+			"kb_sentences": kb_sentences,
 			"agent": [1, 1],
 			"visited": {(1, 1)},
 			"safe_cells": {(1, 1)},
@@ -243,15 +330,22 @@ def initialize_game(rows: int, cols: int) -> Dict[str, object]:
 		}
 	)
 
-	# The start square [1,1] is always safe in Wumpus World.
-	kb.tell(expr("~P_1_1"))
-	kb.tell(expr("~W_1_1"))
+	# Build KB and assert the start cell safety
+	kb = get_kb_from_game()
+	for s in ("~P_1_1", "~W_1_1"):
+		if s not in GAME["kb_sentences"]:
+			GAME["kb_sentences"].append(s)
+			try:
+				kb.tell(expr(s))
+			except Exception as e:
+				print(f"[ERROR] initialize_game: failed to tell '{s}': {e}")
 
-	# Sense the start square immediately.
+	# Sense the start square immediately and persist percepts
 	start_percepts = sense(world, 1, 1)
 	GAME["percepts"] = start_percepts
 	tell_percepts(kb, 1, 1, start_percepts)
 
+	save_game()
 	return make_public_state("New game started.")
 
 
@@ -296,16 +390,29 @@ def new_game():
 	data = request.get_json(force=True)
 	rows = max(2, int(data.get("rows", 4)))
 	cols = max(2, int(data.get("cols", 4)))
-	return jsonify(initialize_game(rows, cols))
+	state = initialize_game(rows, cols)
+	# ensure it's saved
+	save_game()
+	return jsonify(state)
 
 
 @app.route("/api/step", methods=["POST"])
 def step():
-	return jsonify(agent_step())
+	# Accept optional client-supplied state to avoid relying on server disk persistence
+	data = request.get_json(silent=True)
+	if data and "state" in data:
+		apply_state_dict(data["state"])
+	else:
+		load_game()
+
+	result = agent_step()
+	# Return the updated public state
+	return jsonify(result)
 
 
 @app.route("/api/state", methods=["GET"])
 def state():
+	load_game()
 	if not GAME:
 		return jsonify({"ok": False, "message": "No active game."})
 	return jsonify(make_public_state())

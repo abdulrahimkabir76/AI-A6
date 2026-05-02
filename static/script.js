@@ -129,7 +129,11 @@ async function stepGame() {
   }
 
   console.log('[DEBUG] Stepping agent...');
-  const res = await fetch('/api/step', { method: 'POST' });
+  const res = await fetch('/api/step', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ state: currentState }),
+  });
   const state = await res.json();
   console.log('[DEBUG] /api/step response:', state);
   render(state);
@@ -159,7 +163,11 @@ async function toggleAuto() {
     }
 
     console.log('[DEBUG] Auto step iteration...');
-    const res = await fetch('/api/step', { method: 'POST' });
+    const res = await fetch('/api/step', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: currentState }),
+    });
     const state = await res.json();
     console.log('[DEBUG] Auto step response:', state);
     render(state);

@@ -102,12 +102,29 @@ def apply_state_dict(data: Dict[str, object]) -> None:
 		GAME["visited"] = set(tuple(x) for x in GAME["visited"]) if isinstance(GAME["visited"], list) else set()
 	if "safe_cells" in GAME:
 		GAME["safe_cells"] = set(tuple(x) for x in GAME["safe_cells"]) if isinstance(GAME["safe_cells"], list) else set()
-	if "world" in GAME:
-		w = GAME["world"]
-		if isinstance(w.get("pits"), list):
-			GAME["world"]["pits"] = set(tuple(x) for x in w.get("pits", []))
-		if w.get("wumpus"):
-			GAME["world"]["wumpus"] = tuple(w["wumpus"]) if isinstance(w["wumpus"], list) else w["wumpus"]
+
+	# Rebuild the internal world object from the public state snapshot.
+	rows = int(GAME.get("rows", 0))
+	cols = int(GAME.get("cols", 0))
+	pits_value = GAME.get("pits", [])
+	wumpus_value = GAME.get("wumpus", None)
+
+	if isinstance(pits_value, list):
+		pits = set(tuple(x) for x in pits_value)
+	else:
+		pits = set()
+
+	if isinstance(wumpus_value, list) and len(wumpus_value) == 2:
+		wumpus = tuple(wumpus_value)
+	else:
+		wumpus = None
+
+	GAME["world"] = {
+		"rows": rows,
+		"cols": cols,
+		"pits": pits,
+		"wumpus": wumpus,
+	}
 
 	# Ensure kb_sentences list exists
 	if "kb_sentences" not in GAME:

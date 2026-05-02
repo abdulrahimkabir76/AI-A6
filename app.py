@@ -30,7 +30,15 @@ Cell = Tuple[int, int]
 
 # One simple game state for the whole app.
 GAME: Dict[str, object] = {}
-STATE_FILE = Path(__file__).parent / "game_state.json"
+def _default_state_file() -> Path:
+	"""Pick a writable state file path (serverless often has read-only /var/task)."""
+	tmp_dir = Path("/tmp")
+	if tmp_dir.exists():
+		return tmp_dir / "game_state.json"
+	return Path(__file__).parent / "game_state.json"
+
+
+STATE_FILE = _default_state_file()
 
 
 def save_game():
@@ -56,6 +64,9 @@ def save_game():
 		with open(STATE_FILE, "w") as f:
 			json.dump(data, f)
 		print(f"[DEBUG] Game state saved to {STATE_FILE}")
+	except OSError as e:
+		# Read-only filesystem in serverless environments (e.g., /var/task)
+		print(f"[WARN] Skipping state save (read-only FS): {e}")
 	except Exception as e:
 		print(f"[ERROR] Failed to save game state: {e}")
 

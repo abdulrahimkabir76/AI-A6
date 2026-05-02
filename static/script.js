@@ -37,7 +37,10 @@ function buildGrid(rows, cols) {
 
 function render(state) {
   if (!state || !state.ok) {
+    currentState = null;
     statusEl.textContent = state?.message || 'No state available.';
+    stepBtn.disabled = true;
+    autoBtn.disabled = true;
     return;
   }
 
@@ -103,9 +106,14 @@ async function startGame() {
     body: JSON.stringify(payload),
   });
 
-  render(await res.json());
-  stepBtn.disabled = false;
-  autoBtn.disabled = false;
+  const state = await res.json();
+  render(state);
+  
+  // Only enable buttons if the game started successfully
+  if (state && state.ok) {
+    stepBtn.disabled = false;
+    autoBtn.disabled = false;
+  }
 }
 
 async function stepGame() {

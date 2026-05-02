@@ -125,7 +125,21 @@ def mark_known_safe(state: Dict[str, object], cell: Cell) -> None:
 	safe_cells: Set[Cell] = state["safe_cells"]  # type: ignore[assignment]
 	safe_cells.add(cell)
 
-
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "app.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "app.py"
+    }
+  ]
+}
 def agent_step() -> Dict[str, object]:
 	"""Move the agent to one adjacent cell that AIMA can prove safe.
 

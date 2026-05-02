@@ -130,6 +130,11 @@ def apply_state_dict(data: Dict[str, object]) -> None:
 	if "kb_sentences" not in GAME:
 		GAME["kb_sentences"] = []
 
+	# Fallback: if client state has no KB sentences, rebuild base world axioms.
+	if not GAME["kb_sentences"] and rows > 0 and cols > 0:
+		GAME["kb_sentences"] = build_kb(rows, cols)
+		print("[DEBUG] Rebuilt base kb_sentences from rows/cols fallback")
+
 	print("[DEBUG] Applied state from client into GAME keys:", list(GAME.keys()))
 
 
@@ -390,6 +395,7 @@ def make_public_state(message: str = "") -> Dict[str, object]:
 		"pits": sorted(list(pits)),
 		"wumpus": list(wumpus) if wumpus else None,
 		"percepts": percepts,
+		"kb_sentences": GAME.get("kb_sentences", []),
 		"inference_steps": GAME["inference_steps"],
 		"message": message or GAME.get("message", ""),
 		"game_over": GAME.get("game_over", False),

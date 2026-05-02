@@ -11,6 +11,7 @@ const statusEl = document.getElementById('status');
 
 let currentState = null;
 let autoTimer = null;
+let autoRunning = false;
 
 function cellKey(r, c) {
   return `${r},${c}`;
@@ -140,22 +141,27 @@ async function stepGame() {
 }
 
 function stopAuto() {
+  autoRunning = false;
   if (autoTimer) {
-    clearInterval(autoTimer);
+    clearTimeout(autoTimer);
     autoTimer = null;
-    autoBtn.textContent = 'Auto Run';
   }
+  autoBtn.textContent = 'Auto Run';
 }
 
 async function toggleAuto() {
-  if (autoTimer) {
+  if (autoRunning) {
     stopAuto();
     return;
   }
 
   console.log('[DEBUG] Starting auto run...');
+  autoRunning = true;
   autoBtn.textContent = 'Stop Auto';
-  autoTimer = setInterval(async () => {
+
+  const runLoop = async () => {
+    if (!autoRunning) return;
+
     if (!currentState || currentState.game_over || currentState.stopped) {
       console.log('[DEBUG] Auto run stopping. currentState:', currentState);
       stopAuto();
@@ -175,8 +181,13 @@ async function toggleAuto() {
     if (state.game_over || state.stopped) {
       console.log('[DEBUG] Agent stopped or game over. Stopping auto run.');
       stopAuto();
+      return;
     }
-  }, 700);
+
+    autoTimer = setTimeout(runLoop, 500);
+  };
+
+  runLoop();
 }
 
 newGameBtn.addEventListener('click', startGame);

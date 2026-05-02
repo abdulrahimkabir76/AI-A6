@@ -130,6 +130,15 @@ def apply_state_dict(data: Dict[str, object]) -> None:
 	if "kb_sentences" not in GAME:
 		GAME["kb_sentences"] = []
 
+	# Normalize inference_steps
+	if "inference_steps" not in GAME:
+		GAME["inference_steps"] = 0
+	else:
+		try:
+			GAME["inference_steps"] = int(GAME["inference_steps"])
+		except Exception:
+			GAME["inference_steps"] = 0
+
 	# Fallback: if client state has no KB sentences, rebuild base world axioms.
 	if not GAME["kb_sentences"] and rows > 0 and cols > 0:
 		GAME["kb_sentences"] = build_kb(rows, cols)
@@ -302,6 +311,10 @@ def agent_step() -> Dict[str, object]:
 	# Prefer a new safe cell, but backtracking to an already safe cell is okay.
 	proven_safe: List[Cell] = []
 	for nr, nc in candidates:
+		# Skip resolution if we already proved the cell safe earlier.
+		if (nr, nc) in GAME.get("safe_cells", set()):
+			proven_safe.append((nr, nc))
+			continue
 		if cell_is_safe(kb, nr, nc, GAME):
 			proven_safe.append((nr, nc))
 			mark_known_safe(GAME, (nr, nc))
